@@ -122,7 +122,7 @@ using namespace std;
 // --------------------------------------------------------------------
 // Physical constants and iteration parameters
 // --------------------------------------------------------------------
-static const long double G = 9.81L;                  // Acceleration due to gravity (m/s²)
+static const long double G = 9.80665L;               // Acceleration due to gravity (m/s²)
 static const long double PI = 3.141592653589793238L; // Mathematical constant π
 static const int MAX_ITER = 20;                      // Maximum iterations for Newton-Raphson solver
 static const long double TOLERANCE = 1e-12L;         // Convergence tolerance
