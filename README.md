@@ -6,7 +6,7 @@ This repository implements a deterministic offshore-to-nearshore wave-transforma
 
 The code is designed as a practical engineering post-processing tool rather than as a spectral wave model. It does not solve two-dimensional phase-resolving hydrodynamics, diffraction, current-wave interaction, or energy dissipation over complex bathymetry. Instead, it applies a compact and computationally efficient sequence of one-point transformations to each record independently. That makes the tool suitable for rapid forcing transposition, screening studies, preprocessing, sensitivity testing, and preparation of nearshore design series where a simplified but transparent physical model is acceptable.
 
-This README is written to document the **actual implemented algorithm** in `transpose.cpp`, including numerical details, directional conventions, filtering rules, and reporting logic. It is intended to be readable on GitHub and render cleanly with Pandoc plus XeLaTeX.
+This README is written to document the **actual implemented algorithm** in `transpose.cpp`, including numerical details, directional conventions, filtering rules, and reporting logic.
 
 ---
 
@@ -217,7 +217,7 @@ $$
 L_{n+1} = L_n - \frac{F(L_n)}{F'(L_n)}.
 $$
 
-The derivative used in the code can be written in GitHub-safe and Pandoc-safe form as
+The derivative used in the code can be written as
 
 $$
 F'(L) = 1 + L_0 \frac{2\pi d}{L^2} \left[1 - \tanh^2\left(\frac{2\pi d}{L}\right)\right].
@@ -719,30 +719,7 @@ g++ -O3 -fopenmp -march=native -std=c++17 -Wall -Wextra -pedantic -Wconversion -
 
 ---
 
-## 13. Pandoc and GitHub rendering notes
-
-This README is intentionally structured to render robustly in both environments.
-
-Design choices adopted here:
-
-- standard Markdown headings and lists only;
-- no raw HTML blocks;
-- no remote image dependency;
-- equations written with conventional LaTeX math delimiters;
-- no oversized tables for theory sections;
-- formulas written in a way that remains readable even if a renderer has partial math support.
-
-A typical Pandoc command is:
-
-```sh
-pandoc README.md -o README.pdf --pdf-engine=xelatex
-```
-
-If a standalone PDF build is desired with section numbering or table of contents, the user may extend the command line accordingly.
-
----
-
-## 14. Worked conceptual sequence
+## 13. Worked conceptual sequence
 
 For one valid offshore record, the program conceptually applies the following chain:
 
@@ -800,7 +777,7 @@ That compact system captures the entire implemented nearshore transformation for
 
 ---
 
-## 15. Limitations and recommended use
+## 14. Limitations and recommended use
 
 The model should be used with engineering judgment. In particular:
 
@@ -815,7 +792,7 @@ For important design decisions, results should be cross-checked against field kn
 
 ---
 
-## 16. References underlying the implemented theory
+## 15. References underlying the implemented theory
 
 The code structure reflects standard linear wave-transformation concepts commonly associated with:
 
@@ -829,7 +806,7 @@ This repository documents the implemented formulas directly from the source code
 
 ---
 
-## 17. Repository summary
+## 16. Repository summary
 
 In operational terms, `transpose.cpp` is a compact engineering executable that:
 
