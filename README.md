@@ -2,11 +2,13 @@
 
 ## Abstract
 
-This repository implements a deterministic offshore-to-nearshore wave-transformation model for time-series forcing data stored in CSV format. The program reads offshore significant wave height, mean wave direction, and peak period, propagates each sea state to a prescribed local depth, and writes both a transformed time series and a statistical report. The implemented workflow combines linear wave dispersion, directional screening relative to a user-supplied coastline orientation, refraction by Snell-type kinematic transformation, shoaling through linear group-velocity relations, and a Miche-type breaking limitation.
+This repository implements a deterministic offshore-to-nearshore wave-transformation model for time-series forcing data stored in CSV format. The program reads offshore significant wave height, mean wave period, and mean wave direction, propagates each valid sea state to a prescribed local depth, and writes both a transformed time series and a statistical report.
 
-The code is designed as a practical engineering post-processing tool rather than as a spectral wave model. It does not solve two-dimensional phase-resolving hydrodynamics, diffraction, current-wave interaction, or energy dissipation over complex bathymetry. Instead, it applies a compact and computationally efficient sequence of one-point transformations to each record independently. That makes the tool suitable for rapid forcing transposition, screening studies, preprocessing, sensitivity testing, and preparation of nearshore design series where a simplified but transparent physical model is acceptable.
+The implemented workflow combines linear wave dispersion, directional screening relative to a user-supplied coastline orientation, refraction by a Snell-type kinematic transformation, shoaling through linear group-velocity relations, and a Miche-type breaking limitation.
 
-This README is written to document the **actual implemented algorithm** in `transpose.cpp`, including numerical details, directional conventions, filtering rules, and reporting logic.
+The code is designed as a practical engineering post-processing tool rather than as a spectral wave model. It does not solve two-dimensional phase-resolving hydrodynamics, diffraction, current-wave interaction, spectral spreading, or energy dissipation over complex bathymetry. Instead, it applies a compact and computationally efficient one-point transformation to each record independently.
+
+This README documents the implemented behaviour of `transpose.cpp`, including input requirements, numerical formulation, directional conventions, filtering rules, output files, report logic, and compilation.
 
 ---
 
@@ -14,150 +16,195 @@ This README is written to document the **actual implemented algorithm** in `tran
 
 The program transforms offshore wave conditions to a nearshore reference point at constant depth `depth_d` using a single-record, non-spectral formulation. For each valid time step, the code computes:
 
-- deep-water wavelength;
-- local wavelength from the linear dispersion relation;
+- deep-water wavelength from the input mean wave period;
+- finite-depth wavelength from the linear dispersion relation;
 - dimensionless depth `kh`;
 - signed offshore obliquity relative to the coastline;
 - refracted local obliquity;
 - transformed local mean wave direction;
 - shoaling coefficient;
 - refraction coefficient;
-- Miche breaking height;
+- Miche-type breaking height;
 - final local significant wave height capped by breaking.
 
-In addition to the transformed series, the program writes a report with descriptive statistics and annual maxima.
-
-The implementation is especially useful when one needs a reproducible engineering transformation chain that is:
-
-- fast enough for large hindcast or reanalysis time series;
-- explicit in its assumptions;
-- simple to compile as a standalone executable;
-- easy to audit because every computed quantity is written to the output.
+The tool is intended for rapid, auditable transformation of long offshore time series to a fixed nearshore depth. It is suitable for screening studies, sensitivity testing, preprocessing of offshore forcing, and preparation of simplified nearshore design series where a transparent one-point transformation is acceptable.
 
 ---
 
-## 2. Program outputs
+## 2. Input data model
+
+The executable expects a comma-separated file whose header starts exactly with the following four columns:
+
+```csv
+datetime,swh,mwp,mwd
+```
+
+The program reads only these first four columns. Additional columns may be present after `mwd`, but they are ignored by the calculation and by the report.
+
+### 2.1 Required input variables
+
+- `datetime`: timestamp string. The code keeps it as text and extracts the year from its first four characters for annual maxima.
+- `swh`: offshore significant wave height.
+- `mwp`: offshore mean wave period. This is the period used in all wavelength, dispersion, shoaling, refraction, and breaking calculations.
+- `mwd`: offshore mean wave direction.
+
+### 2.2 Required column order
+
+The required fields must be the first four CSV columns and must appear in this order:
+
+```csv
+datetime,swh,mwp,mwd
+```
+
+The header validation is case-insensitive and trims surrounding blanks or quotation marks. However, the first four field names must still correspond to `datetime`, `swh`, `mwp`, and `mwd` after trimming and lower-casing.
+
+A valid extended input header is therefore, for example:
+
+```csv
+datetime,swh,mwp,mwd,wind,dwi,u10,v10
+```
+
+Only `datetime`, `swh`, `mwp`, and `mwd` are used.
+
+### 2.3 Implied units and conventions
+
+The implementation assumes:
+
+- `swh` in metres;
+- `mwp` in seconds;
+- `mwd` in degrees clockwise from North;
+- `coast_dir` in degrees clockwise from North;
+- `depth_d` in metres.
+
+The program does not perform unit conversion. Inputs must already be expressed in a consistent unit system.
+
+### 2.4 Direction convention
+
+The code uses the standard metocean convention in which mean wave direction is the direction **from which waves come**, expressed clockwise from geographic North.
+
+If the input dataset uses a going-to convention or a different angular reference system, the directions must be converted before running the executable.
+
+---
+
+## 3. Program outputs
 
 Running the executable produces two files in the working directory:
 
-### 2.1 `output.csv`
+- `output.csv`;
+- `report.txt`.
 
-This file contains one transformed row per retained timestamp with the following columns:
+### 3.1 `output.csv`
+
+The output CSV contains one transformed row per retained timestamp with the following columns:
 
 ```csv
-datetime,swh_offshore,mwd_offshore,pp1d,L0,L,kh,alpha_offshore,alpha_local,
-swh_local,mwd_local,Ks,Kr,Hb
+datetime,swh_offshore,mwd_offshore,mwp,L0,L,kh,alpha_offshore,alpha_local,swh_local,mwd_local,Ks,Kr,Hb
 ```
 
-### 2.2 `report.txt`
+The numeric output is written with fixed decimal notation and ten decimal places.
 
-This file contains:
+### 3.2 `report.txt`
+
+The report contains:
 
 - the exact command line used to run the executable;
 - descriptive statistics for all reported variables;
 - a note explaining the filtering applied to selected local variables;
 - annual maxima of `swh_offshore` and `swh_local`;
-- overall maxima across all years.
+- overall maxima across all reported years.
 
 ---
 
-## 3. Input data model
+## 4. Meaning of command-line arguments
 
-The executable expects a comma-separated file with at least four columns:
+The executable is called as follows:
 
-```csv
-datetime,swh,mwd,pp1d
+```sh
+./transpose input_csv coast_dir depth_d
 ```
 
-Additional columns may exist and are ignored.
+where:
 
-### 3.1 Required input variables
+- `input_csv`: input CSV file whose first four columns are `datetime,swh,mwp,mwd`;
+- `coast_dir`: coastline azimuth in degrees clockwise from North;
+- `depth_d`: target local depth in metres.
 
-- `datetime`: timestamp string; the code uses it as text and extracts the year from the first four characters;
-- `swh`: offshore significant wave height;
-- `mwd`: offshore mean wave direction;
-- `pp1d`: offshore peak period.
+Example:
 
-### 3.2 Implied units and conventions
+```sh
+./transpose input.csv 270 8.0
+```
 
-The implementation assumes:
+This reads `input.csv`, uses a coastline azimuth of `270°`, and transforms the offshore records to a local depth of `8.0 m`.
 
-- `swh` in metres;
-- `pp1d` in seconds;
-- `mwd` in degrees clockwise from North;
-- `coast_dir` in degrees clockwise from North;
-- `depth_d` in metres.
-
-The program does not perform unit conversion. Inputs must already be expressed in a consistent system.
-
-### 3.3 Direction convention
-
-The code is written for the standard metocean convention in which mean wave direction is the **direction from which waves come**, expressed clockwise from geographic North. If the source dataset uses a going-to convention or a different angular reference system, the user must convert the data before running the program.
+The program requires exactly three arguments after the executable name. It stops with an error if `coast_dir` or `depth_d` cannot be parsed as numbers, or if `depth_d <= 0`.
 
 ---
 
-## 4. Meaning of `coast_dir`
+## 5. Meaning of `coast_dir`
 
-`coast_dir` is the **coastline azimuth**, not the seaward normal. In other words, it represents the orientation of the shoreline itself, measured clockwise from North.
+`coast_dir` is the coastline azimuth, not the seaward normal. It represents the orientation of the shoreline itself, measured clockwise from North.
 
 Examples:
 
 - `coast_dir = 0` or `180` means a coastline aligned North-South;
 - `coast_dir = 90` or `270` means a coastline aligned East-West.
 
-This distinction is critical because the code computes wave obliquity relative to the coastline line, then infers the appropriate crest orientation and nearshore turning from that quantity.
+The code normalizes `coast_dir` to `[0, 360)` before using it.
+
+This distinction is important because the code computes wave obliquity relative to the coastline line, then reconstructs the local mean wave direction after refraction using that signed obliquity.
 
 ---
 
-## 5. Physical and mathematical formulation
+## 6. Physical and mathematical formulation
 
-### 5.1 Governing assumptions
+### 6.1 Governing assumptions
 
-The implementation follows the following simplified assumptions:
+The implementation follows these assumptions:
 
 1. Each time step is treated independently.
 2. Linear wave theory is used for wavelength, celerity, group velocity, shoaling, and refraction.
 3. Refraction is represented through a local Snell-type relation based on the ratio `C/C0`.
-4. Breaking is imposed by an upper bound derived from a Miche-type criterion.
+4. Breaking is imposed through a Miche-type upper bound.
 5. Waves identified as arriving from the land side are suppressed and assigned zero local height.
-6. No diffraction, bottom friction, wind input, currents, nonlinear triad interactions, or spectral spreading are modelled.
+6. No diffraction, bottom friction, wind input, currents, nonlinear interactions, spatial ray tracing, or spectral spreading are modelled.
 
-These assumptions make the tool intentionally compact. They also define its limits of validity.
+These assumptions define the tool as a compact point-transformation model.
 
 ---
 
-### 5.2 Deep-water wavelength
+### 6.2 Deep-water wavelength
 
-For a wave period `T = pp1d`, the deep-water wavelength is computed as
+For a wave period `T = mwp`, the deep-water wavelength is computed as:
 
 $$
-L_0 = \frac{g T^2}{2\pi},
+L_0 = \frac{gT^2}{2\pi},
 $$
 
 where:
 
-- `g = 9.80665 m/s^2`;
-- `T` is the offshore peak period.
+- `g = 9.80665 m/s²`;
+- `T` is the input mean wave period.
 
-In code, non-positive periods return `0`.
+If `T <= 0`, the code returns `L0 = 0`.
 
 ---
 
-### 5.3 Local wavelength from the linear dispersion relation
+### 6.3 Local wavelength from the linear dispersion relation
 
-At the target depth `d = depth_d`, the local wavelength `L` is obtained from the implicit linear dispersion equation rewritten as
+At target depth `d = depth_d`, the finite-depth wavelength `L` is obtained from the implicit linear dispersion equation:
 
 $$
 L = L_0 \tanh\left(\frac{2\pi d}{L}\right).
 $$
 
-This is equivalent to the classical dispersion relation
+This is equivalent to:
 
 $$
-\omega^2 = g k \tanh(k d),
+\omega^2 = gk\tanh(kd),
 $$
 
-with
+with:
 
 $$
 L = \frac{2\pi}{k},
@@ -165,47 +212,43 @@ L = \frac{2\pi}{k},
 \omega = \frac{2\pi}{T}.
 $$
 
-#### 5.3.1 Initial guess used in the code
+#### 6.3.1 Initial estimate
 
-The implementation does **not** start Newton iteration from a generic constant guess. It first computes
-
-$$
-k_0 d = \frac{2\pi d}{L_0},
-$$
-
-then forms a custom estimate for `kh`:
+The code first computes:
 
 $$
-(kh)_{\text{approx}} = \frac{k_0 d}{\tanh\left(\left(\frac{6}{5}\right)^{k_0 d}\sqrt{k_0 d}\right)}.
+k_0 d = \frac{2\pi d}{L_0}.
 $$
 
-From that quantity it builds the initial wavelength estimate as
+It then forms the initial estimate:
+
+$$
+(kh)_{\text{approx}} = \frac{k_0 d}{\tanh\left[\left(\frac{6}{5}\right)^{k_0 d}\sqrt{k_0 d}\right]}.
+$$
+
+From this value, the initial wavelength is:
 
 $$
 L_{\text{init}} = \frac{2\pi d}{(kh)_{\text{approx}}}.
 $$
 
-If this estimate is unusable, the code falls back to an Eckart-type approximation:
+If the estimate is unusable, the code uses an Eckart-type fallback:
 
 $$
-L_{\text{Eckart}} = L_0 \sqrt{\tanh\left((k_0 d)^{1.25}\right)}.
+L_{\text{Eckart}} = L_0 \sqrt{\tanh\left[(k_0 d)^{1.25}\right]}.
 $$
 
-It then applies the safeguards:
-
-- `L <= L0`;
-- `L > 0`;
-- if necessary, an additional fallback
+The initial wavelength is capped so that `L <= L0`. If it remains unusable, the code falls back to:
 
 $$
 L = L_0 \tanh\left(\sqrt{k_0 d}\right),
 $$
 
-followed by `L = L0` as a final fallback.
+and finally to `L = L0` if needed.
 
-#### 5.3.2 Newton iteration
+#### 6.3.2 Newton-Raphson iteration
 
-After initialization, the code solves
+After initialization, the code solves:
 
 $$
 F(L) = L - L_0 \tanh\left(\frac{2\pi d}{L}\right) = 0
@@ -217,46 +260,50 @@ $$
 L_{n+1} = L_n - \frac{F(L_n)}{F'(L_n)}.
 $$
 
-The derivative used in the code can be written as
+The derivative used is:
 
 $$
-F'(L) = 1 + L_0 \frac{2\pi d}{L^2} \left[1 - \tanh^2\left(\frac{2\pi d}{L}\right)\right].
+F'(L) = 1 + L_0\frac{2\pi d}{L^2}\left[1 - \tanh^2\left(\frac{2\pi d}{L}\right)\right].
 $$
 
-The iteration parameters hard-coded in the source are:
+The hard-coded iteration parameters are:
 
 - maximum iterations: `20`;
 - convergence tolerance: `1e-12`.
 
-If an updated iterate becomes non-physical (`L <= 0`), iteration is stopped and the current estimate is retained.
+If a Newton update produces `L <= 0`, the iteration stops and the current estimate is retained.
 
 ---
 
-### 5.4 Wavenumber and dimensionless depth
+### 6.4 Wavenumber and dimensionless depth
 
-Once `L` is known, the local wavenumber is
+Once `L` is known, the local wavenumber is:
 
 $$
 k = \frac{2\pi}{L},
 $$
 
-and the local depth parameter is
+and the local dimensionless depth is:
 
 $$
-kh = k d.
+kh = kd.
 $$
 
-If `L` is not positive, the code sets `k = 0` and therefore `kh = 0`.
+If `L` is not positive, the code sets `k = 0` and `kh = 0`.
 
 ---
 
-### 5.5 Offshore directional screening relative to the coastline
+### 6.5 Directional screening relative to the coastline
 
-The program first normalizes offshore wave direction to the interval `[0, 360)`.
+The offshore mean wave direction is first normalized to `[0, 360)`.
 
-It then computes a relative wave direction with respect to the coastline azimuth, also wrapped to `[0, 360)`.
+The code then computes the relative wave direction with respect to the coastline azimuth:
 
-In implementation terms, waves are treated as arriving from the **land side** when
+$$
+\text{relativeDir} = (\text{mwd}_{\text{offshore}} - \text{coast\_dir}) \bmod 360.
+$$
+
+A wave is treated as arriving from the land side when:
 
 $$
 0 < \text{relativeDir} < 180.
@@ -264,288 +311,286 @@ $$
 
 For those records, the code writes zero for all locally transformed quantities. This is a hard screening rule, not a gradual attenuation.
 
-This behaviour is central to the model. It means the executable does not attempt to rotate land-side wave directions into a physically meaningful nearshore solution. Instead, it assumes such cases do not contribute to the local sea state of interest.
+The cases `relativeDir = 0` and `relativeDir >= 180` are treated as sea-side cases by the implementation.
 
 ---
 
-### 5.6 Signed offshore obliquity `alpha_offshore`
+### 6.6 Signed offshore obliquity `alpha_offshore`
 
-The source code computes a **signed crest-to-coast angle** called `alpha_offshore`. The crest orientation is inferred from the wave direction and coastline orientation.
+The code computes a signed crest-to-coast angle called `alpha_offshore`.
 
-If `relativeDir < 180`, the code uses
+First, the relative direction is computed as above. The wave crest orientation is then obtained from the offshore mean wave direction:
 
-$$
-\text{crest} = \text{mwd} - 90^{\circ},
-$$
+- if `relativeDir < 180`, the crest angle is `mwd - 90°`;
+- otherwise, the crest angle is `mwd + 90°`.
 
-otherwise it uses
+The crest angle is wrapped to `[0, 360)`. The signed difference between crest direction and coastline azimuth is then reduced to `[-180, 180)`.
 
-$$
-\text{crest} = \text{mwd} + 90^{\circ}.
-$$
-
-The crest angle is wrapped into `[0, 360)`, then the signed difference with the coastline is reduced into `[-180, 180)`.
-
-In practice, this creates a signed obliquity whose sign is later preserved during refraction.
+This sign is preserved during the refraction calculation.
 
 ---
 
-### 5.7 Refraction and local angle `alpha_local`
+### 6.7 Refraction and local obliquity `alpha_local`
 
-The code applies a Snell-type transformation in terms of the angle relative to the coastline. Using the linear-wave celerity ratio
-
-$$
-\frac{C}{C_0} = \frac{L/T}{L_0/T} = \frac{L}{L_0} = \tanh(kh),
-$$
-
-the local angle satisfies
+The code applies a Snell-type transformation using the linear-wave celerity ratio:
 
 $$
-\sin(\alpha_{\text{local}}) = \sin(\alpha_{\text{offshore}}) \tanh(kh).
+\frac{C}{C_0} = \frac{L/T}{L_0/T} = \frac{L}{L_0} = \tanh(kh).
 $$
 
-Therefore,
+The local obliquity is therefore computed from:
+
+$$
+\sin(\alpha_{\text{local}}) = \sin(\alpha_{\text{offshore}})\tanh(kh),
+$$
+
+so that:
 
 $$
 \alpha_{\text{local}} = \arcsin\left[\sin(\alpha_{\text{offshore}})\tanh(kh)\right].
 $$
 
-The internal value passed to `asin` is clamped to `[-1, 1]` to avoid floating-point domain errors.
+The sine argument is clamped to `[-1, 1]` before evaluating `asin` to avoid floating-point domain errors.
 
 ---
 
-### 5.8 Local mean wave direction `mwd_local`
+### 6.8 Local mean wave direction `mwd_local`
 
-After refraction, the local mean wave direction is reconstructed by applying the angular change between offshore and local obliquity:
+After refraction, the local mean wave direction is reconstructed as:
 
 $$
-\text{mwd}_{\text{local}} = \text{mwd}_{\text{offshore}} - \left(\alpha_{\text{offshore}} - \alpha_{\text{local}}\right),
+\text{mwd}_{\text{local}}
+= \text{mwd}_{\text{offshore}}
+- \left(\alpha_{\text{offshore}} - \alpha_{\text{local}}\right).
 $$
 
-and the result is then wrapped to `[0, 360)`.
+The result is wrapped to `[0, 360)`.
 
-This is an implementation-level directional reconstruction. It preserves the code's sign convention and should be documented exactly because other formulations often reconstruct the local direction through the shore-normal or through a different angular basis.
+This reconstruction follows the sign convention used internally by the code.
 
 ---
 
-### 5.9 Shoaling coefficient `Ks`
+### 6.9 Shoaling coefficient `Ks`
 
-The shoaling coefficient is based on linear energy-flux conservation. The code uses
-
-$$
-K_s = \sqrt{\frac{C_{g0}}{C_g}},
-$$
-
-with the well-known finite-depth group velocity factor
+The shoaling coefficient is based on linear energy-flux conservation:
 
 $$
-n = \frac{1}{2}\left(1 + \frac{2kh}{\sinh(2kh)}\right).
+K_s = \sqrt{\frac{C_{g0}}{C_g}}.
 $$
 
-Since
+Using:
+
+$$
+n = \frac{1}{2}\left(1 + \frac{2kh}{\sinh(2kh)}\right),
+$$
+
+and:
 
 $$
 \frac{C}{C_0} = \tanh(kh),
 $$
 
-the implemented expression becomes
+the implemented expression is:
 
 $$
-K_s = \sqrt{\frac{1}{\tanh(kh)\, 2n}}.
+K_s = \sqrt{\frac{1}{\tanh(kh)\,2n}}.
 $$
 
-Equivalently,
+Equivalently:
 
 $$
 K_s = \left[\tanh(kh)\left(1 + \frac{2kh}{\sinh(2kh)}\right)\right]^{-1/2}.
 $$
 
-#### 5.9.1 Numerical safeguards for `Ks`
-
-The code returns `1.0` instead of evaluating the above formula when any of the following occur:
-
-- `k <= 0`;
-- `depth <= 0`;
-- `sinh(2kh)` is too close to zero;
-- `tanh(kh)` is too close to zero;
-- the denominator becomes non-positive.
-
-This is a practical numerical safeguard. It prevents singular or undefined values at extreme shallow-water or degenerate states.
+The code returns `Ks = 1.0` if the inputs are non-physical or if a denominator becomes too small or non-positive.
 
 ---
 
-### 5.10 Refraction coefficient `Kr`
+### 6.10 Refraction coefficient `Kr`
 
-The refraction coefficient is computed as
+The refraction coefficient is computed as:
 
 $$
 K_r = \sqrt{\frac{\cos(\alpha_{\text{offshore}})}{\cos(\alpha_{\text{local}})}}.
 $$
 
-The code only evaluates this expression if
+The code evaluates this expression only if:
 
-- `cos(alpha_offshore) >= 0`, and
+- `cos(alpha_offshore) >= 0`;
 - `cos(alpha_local) > tolerance`.
 
-Otherwise, it falls back to
+Otherwise, it uses the fallback value:
 
 $$
 K_r = 1.
 $$
 
-This matters numerically because grazing incidence can lead to very small denominators and unstable amplification.
+This avoids unstable amplification near grazing incidence or invalid square-root conditions.
 
 ---
 
-### 5.11 Miche-type breaking wave height `Hb`
+### 6.11 Miche-type breaking height `Hb`
 
-The breaking-limited height is computed as
+The breaking-limited height is computed as:
 
 $$
-H_b = 0.142 \, L \, \tanh(kh).
+H_b = 0.142 L\tanh(kh).
 $$
 
-This is the expression explicitly implemented in the code and labelled as Miche (1944).
+If `L <= tolerance` or `kh <= 0`, the code sets `Hb = 0`.
 
 ---
 
-### 5.12 Local significant wave height `swh_local`
+### 6.12 Local significant wave height `swh_local`
 
-The unconstrained transformed height is
-
-$$
-H_{\text{trans}} = H_{s,\text{offshore}} K_s K_r.
-$$
-
-The final local significant wave height is then
+The transformed height before breaking limitation is:
 
 $$
-H_{s,\text{local}} = \min\left(H_{\text{trans}}, H_b\right).
+H_{\text{trans}} = H_{s,\text{offshore}}K_sK_r.
 $$
 
-If `Hb <= 0`, the code uses `H_trans` directly. Any negative result is finally clipped to zero.
+The final local significant wave height is:
+
+$$
+H_{s,\text{local}} = \min(H_{\text{trans}}, H_b).
+$$
+
+If `Hb <= 0`, the code uses `H_trans` directly. Any negative final value is clipped to zero.
 
 ---
 
-## 6. Algorithmic workflow
+## 7. Algorithmic workflow
 
-The executable follows the sequence below.
+### 7.1 Header validation
 
-### 6.1 Input parsing
+The program opens the input CSV and reads the first line as the header. The header must contain at least four columns and must start with:
 
-- Open input CSV.
-- Read and discard the header line.
-- Read all remaining non-empty lines.
-- Ignore purely blank or whitespace-only rows.
+```csv
+datetime,swh,mwp,mwd
+```
 
-### 6.2 Temporal ordering and duplicate removal
+If this condition is not met, the program stops with an error.
 
-The program sorts records lexicographically by the first comma-separated field, interpreted as the datetime string. After sorting, duplicate timestamps are removed by retaining a single line per distinct datetime.
+### 7.2 Input parsing
 
-This has two practical consequences:
+After the header, the program:
 
-1. the output is sorted by datetime string, not by original file order;
-2. if duplicate timestamps exist, only one record survives.
+- reads all remaining non-empty lines;
+- ignores purely blank or whitespace-only rows;
+- splits each retained row by commas;
+- parses the first four fields as `datetime`, `swh`, `mwp`, and `mwd`.
 
-Because the sort is performed on the full list before deduplication and is not declared stable, duplicate rows with the same datetime should not be assumed to preserve original ordering.
+The CSV parser is simple and comma-based. It is appropriate for ordinary numeric CSV files without embedded commas inside quoted fields.
 
-### 6.3 Per-record transformation
+### 7.3 Temporal ordering and duplicate removal
 
-Each retained record is parsed into:
+The program sorts the input records lexicographically by the first field, interpreted as the datetime string.
 
-- `datetime`;
-- `swh`;
-- `mwd`;
-- `pp1d`.
+After sorting, duplicate timestamps are removed by retaining only one line for each distinct datetime string.
 
-If parsing fails, or if `swh <= 0`, or if `pp1d <= 0`, the code writes the original offshore values followed by zeros for all derived quantities.
+This means:
 
-For valid records, it then:
+- the output is sorted by datetime string, not by original input order;
+- duplicate timestamps are not all preserved;
+- duplicate rows with the same timestamp should not be assumed to preserve the original file order after sorting.
 
-1. normalizes offshore direction;
-2. checks whether the wave comes from the land side;
-3. if land-side, sets local outputs to zero;
-4. otherwise computes `L0`, `L`, `k`, `kh`, `alpha_offshore`, `alpha_local`, `mwd_local`, `Ks`, `Kr`, `Hb`, and `swh_local`.
+### 7.4 Per-record calculation
 
-### 6.4 Parallel execution
+For each retained record, the code applies the following logic:
 
-The record-processing loop is parallelized with OpenMP:
+1. Parse `datetime`, `swh`, `mwp`, and `mwd`.
+2. If parsing fails, write the original available values and zero for all derived variables.
+3. If `swh <= 0` or `mwp <= 0`, write zero for all derived variables.
+4. Normalize `mwd` to `[0, 360)`.
+5. Compute `relativeDir` from `mwd` and `coast_dir`.
+6. If `0 < relativeDir < 180`, classify the record as land-side and write zero for all local transformed variables.
+7. Otherwise compute `L0`, `L`, `kh`, `alpha_offshore`, `alpha_local`, `swh_local`, `mwd_local`, `Ks`, `Kr`, and `Hb`.
+
+### 7.5 Parallel execution
+
+The per-record transformation loop is parallelized with OpenMP:
 
 ```cpp
 #pragma omp parallel for schedule(static)
 ```
 
-Thread-local containers are used for annual maxima, which are merged after the parallel loop. Output rows are first stored in memory and then written sequentially so that final file order matches the sorted order of retained timestamps.
+Thread-local maps are used for annual maxima. These maps are merged after the parallel loop.
+
+Output rows are first stored in memory and then written sequentially, so the final `output.csv` follows the sorted and deduplicated timestamp order.
 
 ---
 
-## 7. Output variables and exact meanings
+## 8. Output variables
 
-### 7.1 `swh_offshore`
+### 8.1 `datetime`
 
-The offshore significant wave height read from input.
+Timestamp string copied from the input row.
 
-### 7.2 `mwd_offshore`
+### 8.2 `swh_offshore`
 
-The offshore mean wave direction wrapped to `[0, 360)`.
+Offshore significant wave height read from input column `swh`.
 
-### 7.3 `pp1d`
+### 8.3 `mwd_offshore`
 
-The offshore peak period read from input.
+Offshore mean wave direction read from input column `mwd`, wrapped to `[0, 360)` for valid parsed records.
 
-### 7.4 `L0`
+### 8.4 `mwp`
 
-Deep-water wavelength from linear theory.
+Offshore mean wave period read from input column `mwp`. This is the period variable used by the implemented wave transformation.
 
-### 7.5 `L`
+### 8.5 `L0`
 
-Finite-depth wavelength obtained from the Newton solution of the dispersion equation.
+Deep-water wavelength computed from `mwp` using linear theory.
 
-### 7.6 `kh`
+### 8.6 `L`
 
-Dimensionless depth parameter.
+Finite-depth wavelength computed from `mwp` and `depth_d` by solving the linear dispersion relation.
 
-### 7.7 `alpha_offshore`
+### 8.7 `kh`
 
-Signed offshore obliquity relative to the coastline.
+Dimensionless depth parameter:
 
-### 7.8 `alpha_local`
+$$
+kh = kd.
+$$
 
-Signed local obliquity after refraction.
+### 8.8 `alpha_offshore`
 
-### 7.9 `swh_local`
+Signed offshore crest-to-coast obliquity in degrees.
 
-Final nearshore significant wave height after shoaling, refraction, and breaking limitation.
+### 8.9 `alpha_local`
 
-### 7.10 `mwd_local`
+Signed local obliquity in degrees after refraction.
 
-Local mean wave direction reconstructed from the obliquity change.
+### 8.10 `swh_local`
 
-### 7.11 `Ks`
+Final local significant wave height after shoaling, refraction, and breaking limitation.
+
+### 8.11 `mwd_local`
+
+Local mean wave direction reconstructed from the offshore direction and the change from `alpha_offshore` to `alpha_local`.
+
+### 8.12 `Ks`
 
 Shoaling coefficient.
 
-### 7.12 `Kr`
+### 8.13 `Kr`
 
 Refraction coefficient.
 
-### 7.13 `Hb`
+### 8.14 `Hb`
 
-Breaking-limited wave height.
+Miche-type breaking height.
 
 ---
 
-## 8. Statistical report methodology
-
-The generated `report.txt` is not a generic summary. It follows several precise rules implemented in the source.
-
-### 8.1 Variables included in the report
+## 9. Statistical report methodology
 
 The report covers the following thirteen variables:
 
 1. `swh_offshore`
 2. `mwd_offshore`
-3. `pp1d`
+3. `mwp`
 4. `L0`
 5. `L`
 6. `kh`
@@ -557,7 +602,7 @@ The report covers the following thirteen variables:
 12. `Kr`
 13. `Hb`
 
-### 8.2 Linear statistics
+### 9.1 Linear statistics
 
 For non-directional variables, the code computes:
 
@@ -565,142 +610,145 @@ For non-directional variables, the code computes:
 - mean;
 - sample standard deviation;
 - minimum;
-- percentiles at 1%, 10%, 25%, 50%, 75%, 90%, and 99%;
+- 1st percentile;
+- 10th percentile;
+- 25th percentile;
+- median;
+- 75th percentile;
+- 90th percentile;
+- 99th percentile;
 - maximum.
 
-The percentile routine sorts the sample and performs linear interpolation between neighbouring ranks.
+Percentiles are computed after sorting the sample and applying linear interpolation between neighbouring ranks.
 
-### 8.3 Hybrid circular statistics for directions
+### 9.2 Hybrid circular statistics for directions
 
-For `mwd_offshore` and `mwd_local`, the code uses a hybrid strategy:
+For `mwd_offshore` and `mwd_local`, the code uses hybrid directional statistics:
 
-- all angles are first wrapped to `[0, 360)`;
-- circular mean is computed from the vector sum of unit phasors;
-- circular standard deviation is computed from the mean resultant length;
-- minimum, maximum, median, and all listed quantiles are computed linearly on the wrapped angles.
+- all directions are wrapped to `[0, 360)`;
+- mean is computed as a circular mean using unit vectors;
+- standard deviation is computed as circular standard deviation from the mean resultant length;
+- minimum, maximum, median, and percentiles are computed linearly on the wrapped angles.
 
-Thus, the mean and standard deviation are circular, while quantiles are not. This is an intentional design choice in the implementation and should be understood before interpreting the report.
+This means that directional means and standard deviations are circular, while directional quantiles are ordinary wrapped-angle quantiles.
 
-### 8.4 Filtering applied to local variables
+### 9.3 Filtering of local variables
 
-The following variables are **filtered** before descriptive statistics are computed:
+The following variables are filtered before descriptive statistics are computed:
 
-- `alpha_local`
-- `swh_local`
-- `mwd_local`
-- `Ks`
-- `Kr`
-- `Hb`
+- `alpha_local`;
+- `swh_local`;
+- `mwd_local`;
+- `Ks`;
+- `Kr`;
+- `Hb`.
 
-For these variables, the code excludes all records for which
+For these variables, the code excludes all records for which:
 
 $$
-\text{swh}_{\text{local}} \le \text{tolerance}.
+swh_{\text{local}} \leq 10^{-12}.
 $$
 
-This removes land-side waves and any time step whose final local wave height is effectively zero.
+This removes land-side waves and records whose final local wave height is effectively zero from the local-variable statistics.
 
 All other variables are summarized over the full retained record set.
 
-### 8.5 Annual maxima
+### 9.4 Annual maxima
 
-The code extracts the year as the first four characters of `datetime` and stores the annual maximum of:
+The report extracts the year from the first four characters of `datetime` and computes annual maxima for:
 
 - `swh_offshore`;
 - `swh_local`.
 
-The report also prints the overall maximum across all years.
+It then prints a final overall maximum row across all reported years.
 
 ---
 
-## 9. Edge cases and implementation safeguards
+## 10. Edge cases and safeguards
 
-The code contains several defensive choices that are important for correct interpretation.
+### 10.1 Invalid input file or arguments
 
-### 9.1 Invalid or non-physical forcing
+The program stops with an error if:
 
-If any of the following apply:
+- the number of command-line arguments is not correct;
+- `coast_dir` or `depth_d` cannot be parsed as numbers;
+- `depth_d <= 0`;
+- the input file cannot be opened;
+- `output.csv` cannot be created;
+- the input file has no header;
+- the header does not start with `datetime,swh,mwp,mwd`.
 
-- parsing failure;
-- `swh <= 0`;
-- `pp1d <= 0`;
+### 10.2 Empty input after header
 
-then all derived quantities are written as zero.
+If the input file has a valid header but no data rows, the program:
 
-### 9.2 Land-side waves
+- creates `output.csv` with only the header;
+- creates `report.txt` stating that the input file contained no valid data;
+- exits without treating the condition as a processing error.
 
-If
+### 10.3 Invalid or non-physical records
+
+If a row cannot be parsed, or if:
+
+$$
+swh \leq 0
+$$
+
+or:
+
+$$
+mwp \leq 0,
+$$
+
+the derived output variables are written as zero.
+
+### 10.4 Land-side waves
+
+If:
 
 $$
 0 < \text{relativeDir} < 180,
 $$
 
-the wave is treated as arriving from the land side and local outputs are set to zero.
+the record is classified as land-side and all locally transformed quantities are set to zero.
 
-### 9.3 Small-denominator protections
+### 10.5 Small denominators
 
-The code avoids unstable evaluations by checking for near-zero denominators in the shoaling and refraction calculations.
+The code avoids unstable evaluations in shoaling and refraction by checking for near-zero denominators and using fallback values where needed.
 
-### 9.4 Non-physical Newton updates
+### 10.6 Angle wrapping
 
-If Newton iteration proposes `L <= 0`, the iteration stops immediately and the current estimate is retained.
+The implementation uses two angular ranges:
 
-### 9.5 Angle wrapping
-
-All principal directional outputs are normalized either to `[0, 360)` or `[-180, 180)` depending on physical meaning:
-
-- directions such as `mwd_offshore` and `mwd_local` are wrapped to `[0, 360)`;
-- obliquities such as `alpha_offshore` are wrapped to `[-180, 180)`.
+- mean wave directions are wrapped to `[0, 360)`;
+- signed obliquities are wrapped to `[-180, 180)`.
 
 ---
 
-## 10. Practical interpretation of the model
+## 11. Practical interpretation
 
-This executable should be understood as a **point-transformation model**. It is well suited to cases where the user wants to map offshore forcing to a local depth under simplified assumptions and where the main priorities are transparency, reproducibility, and speed.
+This executable is a point-transformation model. It is appropriate when the objective is to transform a long offshore time series to a fixed local depth using a transparent, reproducible, and computationally light method.
 
-It is less suitable when the engineering problem requires any of the following:
+It should not be interpreted as a full coastal wave-propagation model. It does not represent:
 
-- explicit bathymetric ray tracing over spatially varying depth;
-- diffraction around breakwaters, headlands, or structures;
-- current-induced refraction or Doppler shift;
-- spectral partitioning or directional spreading;
+- spatial bathymetric ray tracing;
+- diffraction around structures or headlands;
+- wave-current interaction;
+- directional spreading;
+- spectral partitioning;
 - bottom-friction dissipation;
-- surf-zone energy dissipation beyond a simple breaking cap;
-- harbour resonance or basin-scale wave penetration.
+- surf-zone dissipation beyond the simple breaking cap;
+- harbour resonance or basin penetration.
 
-In those cases, a spectral model such as SWAN or a more detailed nearshore propagation framework is more appropriate.
-
----
-
-## 11. Usage
-
-```sh
-./transpose input_csv coast_dir depth_d
-```
-
-### 11.1 Arguments
-
-- `input_csv`: input CSV file;
-- `coast_dir`: coastline azimuth in degrees clockwise from North;
-- `depth_d`: target local depth in metres.
-
-### 11.2 Example
-
-```sh
-./transpose hindcast.csv 270 8.0
-```
-
-This example means:
-
-- read `hindcast.csv`;
-- use an East-West coastline orientation (`270` is equivalent to `90` as a line azimuth);
-- transform waves to a local point at depth `8.0 m`.
+For design-critical applications, results should be checked against engineering judgement, local bathymetric context, and, where appropriate, a spectral wave model or site-specific wave-transformation study.
 
 ---
 
 ## 12. Build and compilation
 
-The source comment block documents the following compilation command:
+The source is standard C++17 and uses OpenMP for parallel processing.
+
+A typical compilation command is:
 
 ```sh
 g++ -O3 -fopenmp -march=native -std=c++17 -Wall -Wextra -pedantic -Wconversion -Wsign-conversion -static -static-libgcc -static-libstdc++ -o transpose transpose.cpp -lm
@@ -708,23 +756,25 @@ g++ -O3 -fopenmp -march=native -std=c++17 -Wall -Wextra -pedantic -Wconversion -
 
 ### 12.1 Meaning of the main flags
 
-- `-O3`: high compiler optimization;
-- `-fopenmp`: enables OpenMP parallelization;
-- `-march=native`: tunes code generation to the compiling machine;
-- `-std=c++17`: uses the C++17 language standard;
-- `-Wall -Wextra -pedantic`: enables strict warning sets;
-- `-Wconversion -Wsign-conversion`: requests warnings on implicit numeric conversions;
-- `-static -static-libgcc -static-libstdc++`: requests static linkage where supported;
-- `-lm`: links the math library.
+- `-O3`: enables high compiler optimisation.
+- `-fopenmp`: enables OpenMP multithreading.
+- `-march=native`: tunes the executable for the compiling machine.
+- `-std=c++17`: compiles as C++17.
+- `-Wall -Wextra -pedantic`: enables strict warning checks.
+- `-Wconversion -Wsign-conversion`: reports implicit numeric-conversion warnings.
+- `-static -static-libgcc -static-libstdc++`: requests static linkage where supported.
+- `-lm`: links the mathematical library where required.
+
+On Windows with MSYS2/UCRT64, the same command can be used from the UCRT64 shell if `g++` and OpenMP support are installed.
 
 ---
 
-## 13. Worked conceptual sequence
+## 13. Worked computational sequence
 
-For one valid offshore record, the program conceptually applies the following chain:
+For one valid sea-side offshore record, the implemented chain is:
 
 $$
-(T, H_s, \text{MWD})
+(mwp, H_s, MWD)
 \rightarrow
 L_0
 \rightarrow
@@ -740,10 +790,10 @@ K_s, K_r
 \rightarrow
 H_b
 \rightarrow
-H_{s,\text{local}}, \text{MWD}_{\text{local}}.
+H_{s,\text{local}}, MWD_{\text{local}}.
 $$
 
-With equations grouped compactly, the implemented model is:
+The compact mathematical form is:
 
 $$
 L_0 = \frac{gT^2}{2\pi},
@@ -768,54 +818,28 @@ K_r = \sqrt{\frac{\cos(\alpha_{\text{offshore}})}{\cos(\alpha_{\text{local}})}},
 $$
 
 $$
-H_b = 0.142 \, L \, \tanh(kh),
+H_b = 0.142L\tanh(kh),
 \qquad
-H_{s,\text{local}} = \min\left(H_{s,\text{offshore}} K_s K_r, H_b\right).
+H_{s,\text{local}} = \min(H_{s,\text{offshore}}K_sK_r, H_b).
 $$
 
-That compact system captures the entire implemented nearshore transformation for sea-side waves.
+In this sequence, `T` is the input `mwp`.
 
 ---
 
-## 14. Limitations and recommended use
+## 14. Repository summary
 
-The model should be used with engineering judgment. In particular:
-
-- it is best interpreted as a rapid transformation tool for a fixed target depth;
-- it is appropriate for screening, long time-series preprocessing, and transparent design support;
-- it should not be mistaken for a full coastal wave-propagation model;
-- coastline orientation and directional convention must be checked carefully before use;
-- the land-side suppression rule can strongly affect results and should be verified against local geometry;
-- the use of peak period alone is a simplification when the incident sea state is broadband.
-
-For important design decisions, results should be cross-checked against field knowledge, spectral modelling, or site-specific engineering assessment.
-
----
-
-## 15. References underlying the implemented theory
-
-The code structure reflects standard linear wave-transformation concepts commonly associated with:
-
-- Airy wave theory for dispersion and celerity;
-- Snell-type refraction of wave rays;
-- linear group-velocity shoaling relations;
-- Miche-type depth-limited breaking;
-- Eckart-type finite-depth wavelength approximation for initialization.
-
-This repository documents the implemented formulas directly from the source code, which should remain the primary reference for exact computational behaviour.
-
----
-
-## 16. Repository summary
-
-In operational terms, `transpose.cpp` is a compact engineering executable that:
+In operational terms, `transpose.cpp`:
 
 - reads offshore wave forcing from CSV;
-- removes duplicate timestamps after datetime sorting;
-- transforms each record to a prescribed depth;
-- rejects land-side waves;
+- requires the first four input columns to be `datetime,swh,mwp,mwd`;
+- ignores any additional input columns;
+- sorts the input records by timestamp;
+- removes duplicate timestamps;
+- transforms each valid sea-side record to a prescribed depth;
+- suppresses land-side waves;
 - applies refraction, shoaling, and breaking limitation;
-- writes a complete transformed series;
-- produces descriptive statistics and annual maxima.
+- writes a complete transformed time series to `output.csv`;
+- writes descriptive statistics and annual maxima to `report.txt`.
 
-For users who need a transparent and auditable offshore-to-nearshore post-processing tool, this combination of physical clarity and implementation simplicity is the central value of the repository.
+The program is therefore a compact engineering tool for transparent offshore-to-nearshore wave transposition based on mean wave period, significant wave height, mean wave direction, coastline azimuth, and target local depth.

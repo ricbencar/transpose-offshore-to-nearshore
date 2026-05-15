@@ -37,15 +37,15 @@
 //
 //   Where:
 //     input_csv : CSV input file containing at least the following columns:
-//                 datetime, swh, mwd, pp1d (additional columns are ignored)
+//                 datetime, swh, mwp, mwd
 //     coast_dir : Coastline orientation in degrees (clockwise from North)
 //     depth_d   : Local depth in meters
 //
 // EXPECTED CSV INPUT FORMAT (comma-separated):
-//     datetime, swh, mwd, pp1d, [additional columns ignored]
+//     datetime, swh, mwp, mwd
 //
 // OUTPUT CSV FORMAT (comma-separated):
-//     datetime,swh_offshore,mwd_offshore,pp1d,L0,L,kh,alpha_offshore,
+//     datetime,swh_offshore,mwd_offshore,mwp,L0,L,kh,alpha_offshore,
 //     alpha_local,swh_local,mwd_local,Ks,Kr,Hb
 //
 // Explanation of computed parameters:
@@ -116,6 +116,7 @@
 #include <mutex>
 #include <set> // For checking variable names efficiently
 #include <cstddef> // For size_t
+#include <cctype>  // For character classification in CSV header validation
 
 using namespace std;
 
@@ -490,7 +491,7 @@ int main(int argc, char *argv[])
 
     // Write output CSV header
     outFile << "datetime,"
-            << "swh_offshore,mwd_offshore,pp1d,"
+            << "swh_offshore,mwd_offshore,mwp,"
             << "L0,L,kh,alpha_offshore,alpha_local,"
             << "swh_local,mwd_local,Ks,Kr,Hb\n";
 
@@ -498,9 +499,47 @@ int main(int argc, char *argv[])
     const size_t NUM_COLS = 13;
     vector<vector<long double>> statsData(NUM_COLS); // No initial size, will resize later
 
-    // Read and discard CSV header
+    // Read and validate CSV header. The processing columns are expected in the
+    // production input order: datetime,swh,mwp,mwd. Additional columns, if present, are ignored.
     string header;
-    getline(inFile, header);
+    if (!getline(inFile, header)) {
+        cerr << "ERROR: input file is empty or has no header.\n";
+        return 1;
+    }
+
+    auto trimHeaderToken = [](string value) -> string {
+        const auto first = value.find_first_not_of(" \t\r\n\"");
+        if (first == string::npos) return "";
+        const auto last = value.find_last_not_of(" \t\r\n\"");
+        value = value.substr(first, last - first + 1);
+        for (char &ch : value) {
+            ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+        }
+        return value;
+    };
+
+    vector<string> headerFields;
+    {
+        stringstream headerStream(header);
+        string headerToken;
+        while (getline(headerStream, headerToken, ',')) {
+            headerFields.push_back(trimHeaderToken(headerToken));
+        }
+    }
+
+    const vector<string> requiredHeaderPrefix = {"datetime", "swh", "mwp", "mwd"};
+    if (headerFields.size() < requiredHeaderPrefix.size()) {
+        cerr << "ERROR: input CSV header must start with datetime,swh,mwp,mwd.\n";
+        return 1;
+    }
+    for (size_t h = 0; h < requiredHeaderPrefix.size(); ++h) {
+        if (headerFields[h] != requiredHeaderPrefix[h]) {
+            cerr << "ERROR: input CSV header must start with datetime,swh,mwp,mwd.\n"
+                 << "Detected column " << (h + 1) << ": '" << headerFields[h] << "'.\n";
+            return 1;
+        }
+    }
+
     // Read remaining lines into a vector
     vector<string> lines;
     string line;
@@ -586,15 +625,15 @@ int main(int argc, char *argv[])
         }
 
         string datetime = "";
-        long double swh = 0.0L, mwd = 0.0L, pp1d = 0.0L;
+        long double swh = 0.0L, mwd = 0.0L, mwp = 0.0L;
         bool parse_ok = false;
 
         if (fields.size() >= 4) {
             try {
                 datetime = fields[0];
                 swh = stold(fields[1]);
-                mwd = stold(fields[2]);
-                pp1d = stold(fields[3]);
+                mwp = stold(fields[2]);
+                mwd = stold(fields[3]);
                 parse_ok = true;
             } catch (const std::invalid_argument& ia) {
                 // cerr << "Warning: Skipping line " << i+1 << " due to invalid number format: " << ia.what() << "\n";
@@ -615,11 +654,11 @@ int main(int argc, char *argv[])
         ostringstream oss;
         oss << fixed << setprecision(10); // Ensure precision in the output string stream
 
-        if (!parse_ok || swh <= 0.0L || pp1d <= 0.0L) {
+        if (!parse_ok || swh <= 0.0L || mwp <= 0.0L) {
             // Handle invalid input or non-physical waves
-            oss << datetime << "," << swh << "," << mwd << "," << pp1d;
+            oss << datetime << "," << swh << "," << mwd << "," << mwp;
             oss << ",0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0"; // Zeroes for calculated fields
-            record = {swh, mwd, pp1d, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L};
+            record = {swh, mwd, mwp, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L};
             // Update annual max even if input is zero/invalid (max will be >= 0)
              if (!datetime.empty() && datetime.size() >= 4) {
                  string year = datetime.substr(0, 4);
@@ -638,9 +677,9 @@ int main(int argc, char *argv[])
             // Note: relativeDir = 180 means wave is exactly parallel to coast from seaward side
             if (relativeDir > 0.0L && relativeDir < 180.0L) {
                 // Wave from land side: set local parameters to zero
-                oss << datetime << "," << swh << "," << mwd_offshore_norm << "," << pp1d;
+                oss << datetime << "," << swh << "," << mwd_offshore_norm << "," << mwp;
                 oss << ",0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0"; // Zeroes for calculated fields
-                record = {swh, mwd_offshore_norm, pp1d, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L};
+                record = {swh, mwd_offshore_norm, mwp, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L, 0.0L};
                  if (!datetime.empty() && datetime.size() >= 4) {
                      string year = datetime.substr(0, 4);
                      localAnnualMaxOffshore[tid][year] = max(localAnnualMaxOffshore[tid].count(year) ? localAnnualMaxOffshore[tid][year] : -1.0L, swh);
@@ -648,8 +687,8 @@ int main(int argc, char *argv[])
                  }
             } else {
                 // Wave from sea side (relative angle 0, or 180 to 360)
-                long double L0 = deepWaterLength(pp1d);
-                long double L = localWavelength(pp1d, depth_d);
+                long double L0 = deepWaterLength(mwp);
+                long double L = localWavelength(mwp, depth_d);
                 long double kLocal = (L > TOLERANCE) ? (2.0L * PI / L) : 0.0L;
                 long double kh = kLocal * depth_d;
 
@@ -703,13 +742,13 @@ int main(int argc, char *argv[])
                 // Ensure swh_local is non-negative
                 if (swh_local < 0.0L) swh_local = 0.0L;
 
-                oss << datetime << "," << swh << "," << mwd_offshore_norm << "," << pp1d << ","
+                oss << datetime << "," << swh << "," << mwd_offshore_norm << "," << mwp << ","
                     << L0 << "," << L << "," << kh << ","
                     << alpha_offshore << "," << alpha_local << ","
                     << swh_local << "," << mwd_local << ","
                     << Ks << "," << Kr << "," << Hb;
 
-                record = {swh, mwd_offshore_norm, pp1d, L0, L, kh, alpha_offshore,
+                record = {swh, mwd_offshore_norm, mwp, L0, L, kh, alpha_offshore,
                           alpha_local, swh_local, mwd_local, Ks, Kr, Hb};
 
                 if (!datetime.empty() && datetime.size() >= 4) {
@@ -765,7 +804,7 @@ int main(int argc, char *argv[])
     reportFile << string(LINE_WIDTH, '=') << "\n\n";
 
     vector<string> varNames = {
-        "swh_offshore", "mwd_offshore", "pp1d", "L0", "L", "kh",
+        "swh_offshore", "mwd_offshore", "mwp", "L0", "L", "kh",
         "alpha_offshore", "alpha_local", "swh_local", "mwd_local", "Ks", "Kr", "Hb"
     };
     // Set of variables that require filtering (based on swh_local > 0)
