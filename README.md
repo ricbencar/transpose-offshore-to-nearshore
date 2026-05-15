@@ -297,18 +297,17 @@ If `L` is not positive, the code sets `k = 0` and `kh = 0`.
 
 The offshore mean wave direction is first normalized to `[0, 360)`.
 
-The code then computes the relative wave direction with respect to the coastline azimuth:
+The code then computes the relative wave direction with respect to the coastline azimuth using the implemented expression:
 
-$$
-\operatorname{relativeDir} = 
-\left(\mathrm{mwd}_{\mathrm{offshore}} - \mathrm{coast\_dir}\right) \bmod 360.
-$$
+```text
+relativeDir = (mwd_offshore - coast_dir) mod 360
+```
 
 A wave is treated as arriving from the land side when:
 
-$$
-0 < \operatorname{relativeDir} < 180.
-$$
+```text
+0 < relativeDir < 180
+```
 
 For those records, the code writes zero for all locally transformed quantities. This is a hard screening rule, not a gradual attenuation.
 
