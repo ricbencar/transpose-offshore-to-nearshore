@@ -1,4 +1,4 @@
-Command line: C:\DOWNLOADS\github\transpose-offshore-to-nearshore-main\transpose.exe input.csv 10 5
+Command line: transpose input.csv 10 5
 
 Descriptive Statistics Report
 (Note: Stats for alpha_local, swh_local, mwd_local, Ks, Kr, Hb exclude steps where swh_local = 0)
