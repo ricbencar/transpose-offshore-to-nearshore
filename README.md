@@ -223,19 +223,19 @@ $$
 It then forms the initial estimate:
 
 $$
-(kh)_{\text{approx}} = \frac{k_0 d}{\tanh\left[\left(\frac{6}{5}\right)^{k_0 d}\sqrt{k_0 d}\right]}.
+(kh)_{\mathrm{approx}} = \frac{k_0 d}{\tanh\left[\left(\frac{6}{5}\right)^{k_0 d}\sqrt{k_0 d}\right]}.
 $$
 
 From this value, the initial wavelength is:
 
 $$
-L_{\text{init}} = \frac{2\pi d}{(kh)_{\text{approx}}}.
+L_{\mathrm{init}} = \frac{2\pi d}{(kh)_{\mathrm{approx}}}.
 $$
 
 If the estimate is unusable, the code uses an Eckart-type fallback:
 
 $$
-L_{\text{Eckart}} = L_0 \sqrt{\tanh\left[(k_0 d)^{1.25}\right]}.
+L_{\mathrm{Eckart}} = L_0 \sqrt{\tanh\left[(k_0 d)^{1.25}\right]}.
 $$
 
 The initial wavelength is capped so that `L <= L0`. If it remains unusable, the code falls back to:
@@ -300,13 +300,14 @@ The offshore mean wave direction is first normalized to `[0, 360)`.
 The code then computes the relative wave direction with respect to the coastline azimuth:
 
 $$
-\text{relativeDir} = (\text{mwd}_{\text{offshore}} - \text{coast\_dir}) \bmod 360.
+\operatorname{relativeDir} = 
+\left(\mathrm{mwd}_{\mathrm{offshore}} - \mathrm{coast\_dir}\right) \bmod 360.
 $$
 
 A wave is treated as arriving from the land side when:
 
 $$
-0 < \text{relativeDir} < 180.
+0 < \operatorname{relativeDir} < 180.
 $$
 
 For those records, the code writes zero for all locally transformed quantities. This is a hard screening rule, not a gradual attenuation.
@@ -341,13 +342,13 @@ $$
 The local obliquity is therefore computed from:
 
 $$
-\sin(\alpha_{\text{local}}) = \sin(\alpha_{\text{offshore}})\tanh(kh),
+\sin(\alpha_{\mathrm{local}}) = \sin(\alpha_{\mathrm{offshore}})\tanh(kh),
 $$
 
 so that:
 
 $$
-\alpha_{\text{local}} = \arcsin\left[\sin(\alpha_{\text{offshore}})\tanh(kh)\right].
+\alpha_{\mathrm{local}} = \arcsin\left[\sin(\alpha_{\mathrm{offshore}})\tanh(kh)\right].
 $$
 
 The sine argument is clamped to `[-1, 1]` before evaluating `asin` to avoid floating-point domain errors.
@@ -359,9 +360,9 @@ The sine argument is clamped to `[-1, 1]` before evaluating `asin` to avoid floa
 After refraction, the local mean wave direction is reconstructed as:
 
 $$
-\text{mwd}_{\text{local}}
-= \text{mwd}_{\text{offshore}}
-- \left(\alpha_{\text{offshore}} - \alpha_{\text{local}}\right).
+\mathrm{mwd}_{\mathrm{local}}
+= \mathrm{mwd}_{\mathrm{offshore}}
+- \left(\alpha_{\mathrm{offshore}} - \alpha_{\mathrm{local}}\right).
 $$
 
 The result is wrapped to `[0, 360)`.
@@ -411,7 +412,7 @@ The code returns `Ks = 1.0` if the inputs are non-physical or if a denominator b
 The refraction coefficient is computed as:
 
 $$
-K_r = \sqrt{\frac{\cos(\alpha_{\text{offshore}})}{\cos(\alpha_{\text{local}})}}.
+K_r = \sqrt{\frac{\cos(\alpha_{\mathrm{offshore}})}{\cos(\alpha_{\mathrm{local}})}}.
 $$
 
 The code evaluates this expression only if:
@@ -446,13 +447,13 @@ If `L <= tolerance` or `kh <= 0`, the code sets `Hb = 0`.
 The transformed height before breaking limitation is:
 
 $$
-H_{\text{trans}} = H_{s,\text{offshore}}K_sK_r.
+H_{\mathrm{trans}} = H_{s,\mathrm{offshore}}K_sK_r.
 $$
 
 The final local significant wave height is:
 
 $$
-H_{s,\text{local}} = \min(H_{\text{trans}}, H_b).
+H_{s,\mathrm{local}} = \min(H_{\mathrm{trans}}, H_b).
 $$
 
 If `Hb <= 0`, the code uses `H_trans` directly. Any negative final value is clipped to zero.
@@ -646,7 +647,7 @@ The following variables are filtered before descriptive statistics are computed:
 For these variables, the code excludes all records for which:
 
 $$
-swh_{\text{local}} \leq 10^{-12}.
+swh_{\mathrm{local}} \leq 10^{-12}.
 $$
 
 This removes land-side waves and records whose final local wave height is effectively zero from the local-variable statistics.
@@ -782,15 +783,15 @@ L
 \rightarrow
 kh
 \rightarrow
-\alpha_{\text{offshore}}
+\alpha_{\mathrm{offshore}}
 \rightarrow
-\alpha_{\text{local}}
+\alpha_{\mathrm{local}}
 \rightarrow
 K_s, K_r
 \rightarrow
 H_b
 \rightarrow
-H_{s,\text{local}}, MWD_{\text{local}}.
+H_{s,\mathrm{local}}, MWD_{\mathrm{local}}.
 $$
 
 The compact mathematical form is:
@@ -808,19 +809,19 @@ kh = kd,
 $$
 
 $$
-\sin(\alpha_{\text{local}}) = \sin(\alpha_{\text{offshore}})\tanh(kh),
+\sin(\alpha_{\mathrm{local}}) = \sin(\alpha_{\mathrm{offshore}})\tanh(kh),
 $$
 
 $$
 K_s = \left[\tanh(kh)\left(1 + \frac{2kh}{\sinh(2kh)}\right)\right]^{-1/2},
 \qquad
-K_r = \sqrt{\frac{\cos(\alpha_{\text{offshore}})}{\cos(\alpha_{\text{local}})}},
+K_r = \sqrt{\frac{\cos(\alpha_{\mathrm{offshore}})}{\cos(\alpha_{\mathrm{local}})}},
 $$
 
 $$
 H_b = 0.142L\tanh(kh),
 \qquad
-H_{s,\text{local}} = \min(H_{s,\text{offshore}}K_sK_r, H_b).
+H_{s,\mathrm{local}} = \min(H_{s,\mathrm{offshore}}K_sK_r, H_b).
 $$
 
 In this sequence, `T` is the input `mwp`.
